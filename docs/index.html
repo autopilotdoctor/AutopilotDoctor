@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutopilotDoctor &mdash; Windows Autopilot, Intune &amp; Entra ID Diagnostic Tool</title>
+<meta name="description" content="Diagnose Windows Autopilot, Entra ID, Intune MDM, SSL/TLS inspection, SCEP certificates, and 802.1X Wi-Fi failures in 15 seconds. Single portable EXE, zero telemetry.">
+<style>
+  :root {
+    --bg: #0b0f19;
+    --card: #111827;
+    --subtle: #1f2937;
+    --border: #283548;
+    --text: #f3f4f6;
+    --muted: #9ca3af;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .container { max-width: 1120px; margin: 0 auto; padding: 0 1.5rem; }
+
+  /* Nav */
+  nav {
+    border-bottom: 1px solid var(--border);
+    padding: 1.1rem 0;
+    background: rgba(11, 15, 25, 0.9);
+    position: sticky; top: 0; z-index: 50; backdrop-filter: blur(8px);
+  }
+  .nav-inner { display: flex; justify-content: space-between; align-items: center; }
+  .logo { display: flex; align-items: center; gap: 0.7rem; font-weight: 800; font-size: 1.15rem; text-decoration: none; color: var(--text); }
+  .logo-badge {
+    width: 34px; height: 34px; border-radius: 8px;
+    background: linear-gradient(135deg, #2563eb, #06b6d4);
+    display: flex; align-items: center; justify-content: center; font-size: 0.95rem; color: #fff;
+  }
+  .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+  .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; }
+  .nav-links a:hover { color: var(--text); }
+
+  /* Buttons */
+  .btn {
+    display: inline-block; padding: 0.75rem 1.4rem; border-radius: 8px;
+    font-weight: 700; font-size: 0.95rem; text-decoration: none; transition: all 0.15s ease;
+    border: 1px solid var(--border); background: var(--subtle); color: var(--text);
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-sm { padding: 0.45rem 0.95rem; font-size: 0.85rem; }
+
+  /* Hero */
+  .hero { padding: 5rem 0 4rem; text-align: center; }
+  .pill {
+    display: inline-block; padding: 0.3rem 0.85rem; border-radius: 999px;
+    background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4);
+    color: #60a5fa; font-size: 0.8rem; font-weight: 600; margin-bottom: 1.25rem;
+  }
+  .hero h1 {
+    font-size: clamp(2rem, 4.5vw, 3.3rem);
+    font-weight: 800; line-height: 1.15; letter-spacing: -0.03em;
+    max-width: 860px; margin: 0 auto 1.25rem;
+  }
+  .hero p {
+    font-size: 1.12rem; color: var(--muted); max-width: 680px; margin: 0 auto 2rem;
+  }
+  .hero-cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; margin-bottom: 2.5rem; }
+  .trust-strip {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 1.75rem;
+    font-size: 0.85rem; color: var(--green); font-family: var(--mono);
+  }
+
+  /* Sections */
+  section { padding: 4rem 0; border-top: 1px solid var(--border); }
+  .sec-header { text-align: center; max-width: 680px; margin: 0 auto 3rem; }
+  .sec-header h2 { font-size: 2rem; font-weight: 800; margin-bottom: 0.6rem; letter-spacing: -0.02em; }
+  .sec-header p { color: var(--muted); font-size: 1rem; }
+
+  /* Module Grid */
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.25rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.5rem;
+  }
+  .mod-tag {
+    font-family: var(--mono); font-size: 0.75rem; font-weight: 700;
+    color: #60a5fa; text-transform: uppercase; margin-bottom: 0.5rem; display: block;
+  }
+  .card h3 { font-size: 1.12rem; margin-bottom: 0.6rem; }
+  .card p { font-size: 0.9rem; color: var(--muted); }
+
+  /* Pricing */
+  .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; align-items: stretch; }
+  .price-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 2rem; display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .price-card.featured { border: 2px solid var(--accent); position: relative; }
+  .pop-badge {
+    position: absolute; top: -12px; right: 20px; background: var(--accent); color: #fff;
+    font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.65rem; border-radius: 999px; text-transform: uppercase;
+  }
+  .price-tier { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.35rem; }
+  .price-amt { font-size: 2.5rem; font-weight: 800; margin: 0.5rem 0; }
+  .price-amt span { font-size: 0.9rem; font-weight: 500; color: var(--muted); }
+  .price-desc { font-size: 0.88rem; color: var(--muted); margin-bottom: 1.5rem; }
+  .feat-list { list-style: none; margin-bottom: 2rem; }
+  .feat-list li { font-size: 0.9rem; padding: 0.45rem 0; border-bottom: 1px solid rgba(40, 53, 72, 0.5); }
+  .feat-list li strong { color: var(--green); margin-right: 0.4rem; }
+
+  /* FAQ */
+  .faq-list { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem; }
+  .faq-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; }
+  .faq-item h4 { font-size: 1rem; margin-bottom: 0.4rem; }
+  .faq-item p { font-size: 0.9rem; color: var(--muted); }
+
+  footer {
+    border-top: 1px solid var(--border); padding: 2.5rem 0; text-align: center;
+    color: var(--muted); font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="container nav-inner">
+    <a href="#" class="logo">
+      <div class="logo-badge">AD</div>
+      <span>AutopilotDoctor</span>
+    </a>
+    <div class="nav-links">
+      <a href="#modules">Diagnostic Modules</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+      <a href="#pricing" class="btn btn-primary btn-sm">Get Pro License</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <span class="pill">v1.3 Portable Windows Executable &bull; Zero Cloud Dependencies</span>
+    <h1>Stop Digging Through 14 Intune Logs &amp; Event Viewers.</h1>
+    <p>AutopilotDoctor inspects Entra ID join state, TPM 2.0, Intune MDM sync, SSL/TLS proxy interception, SCEP/PKCS certificates, 802.1X Wi-Fi, and Win32 IME logs in 15 seconds &mdash; outputting a clean, shareable HTML report.</p>
+    <div class="hero-cta">
+      <a href="https://github.com/autopilotdoctor/AutopilotDoctor/releases/latest" class="btn">Download Free Edition (.exe)</a>
+      <a href="#pricing" class="btn btn-primary">Unlock Pro Remediation ($39)</a>
+    </div>
+    <div class="trust-strip">
+      <span>[&check;] 100% Local Execution</span>
+      <span>[&check;] Zero Telemetry</span>
+      <span>[&check;] One-Click PII Anonymizer</span>
+      <span>[&check;] Works Offline / OOBE</span>
+    </div>
+  </div>
+</header>
+
+<section id="modules">
+  <div class="container">
+    <div class="sec-header">
+      <h2>5 Deep-Inspection Modules in One Click</h2>
+      <p>Built by enterprise endpoint engineers to catch the exact root causes behind Autopilot ESP timeouts and Intune policy failures.</p>
+    </div>
+    <div class="grid-3">
+      <div class="card">
+        <span class="mod-tag">Module A &bull; Identity &amp; Hardware</span>
+        <h3>Entra ID &amp; TPM 2.0 Attestation</h3>
+        <p>Parses <code style="font-family:var(--mono)">dsregcmd /status</code>, validates Primary Refresh Token (PRT), KeySignTest, recovery loops, and verifies TPM 2.0 readiness for self-deploying profiles.</p>
+      </div>
+      <div class="card">
+        <span class="mod-tag">Module B &bull; Intune MDM</span>
+        <h3>Enrollment, Sync &amp; Error Codes</h3>
+        <p>Inspects <code style="font-family:var(--mono)">MS DM Server</code> registry state, EnterpriseMgmt scheduled tasks, last check-in hours, IME service health, and translates 72h Event Viewer hex codes.</p>
+      </div>
+      <div class="card">
+        <span class="mod-tag">Module C &bull; Network &amp; TLS</span>
+        <h3>Firewall &amp; SSL Inspection Detector</h3>
+        <p>Tests TCP 443 latency across 12 critical Microsoft endpoints, detects User vs. SYSTEM WinHTTP proxy mismatches, and catches SSL MITM decryption (Zscaler/Fortinet/Palo Alto).</p>
+      </div>
+      <div class="card">
+        <span class="mod-tag">Module D &bull; Certs &amp; Wireless</span>
+        <h3>SCEP/PKCS &amp; 802.1X Wi-Fi</h3>
+        <p>Audits LocalMachine &amp; CurrentUser certificates for missing private keys or expiration, and correlates WLAN AutoConfig 802.1X/EAP RADIUS authentication failures.</p>
+      </div>
+      <div class="card">
+        <span class="mod-tag">Module E &bull; Apps &amp; Storage</span>
+        <h3>Win32 IME Logs &amp; BitLocker</h3>
+        <p>Maps Win32 app enforcement states and exit codes (1603, 0x87d1041c), verifies BitLocker recovery key protectors, and checks NVMe/SSD SMART hardware health.</p>
+      </div>
+      <div class="card">
+        <span class="mod-tag">Privacy &amp; Reporting</span>
+        <h3>Self-Contained HTML &amp; PII Masking</h3>
+        <p>Generates an offline-ready dark/light HTML report with one-click SHA-256 anonymization so technicians can safely share reports across tickets or vendors.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="container">
+    <div class="sec-header">
+      <h2>Simple, One-Time Perpetual Pricing</h2>
+      <p>No recurring SaaS subscriptions. Pay once, own the tool forever, and use it across unlimited client endpoints.</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div>
+          <div class="price-tier">Free Community Edition</div>
+          <div class="price-amt">$0 <span>/ forever</span></div>
+          <p class="price-desc">Ideal for quick health checks and verifying endpoint reachability.</p>
+          <ul class="feat-list">
+            <li><strong>&check;</strong> Full 5-Module Diagnostic Scan</li>
+            <li><strong>&check;</strong> Interactive HTML Dashboard Report</li>
+            <li><strong>&check;</strong> SSL/TLS MITM Interception Check</li>
+            <li><strong>&check;</strong> Built-in PII Anonymizer Mode</li>
+            <li style="color:var(--muted);">&times; Remediation hints &amp; CLI fixes locked</li>
+            <li style="color:var(--muted);">&times; Raw JSON export locked</li>
+          </ul>
+        </div>
+        <a href="https://github.com/autopilotdoctor/AutopilotDoctor/releases/latest" class="btn" style="text-align:center;">Download Free EXE</a>
+      </div>
+
+      <div class="price-card featured">
+        <span class="pop-badge">Most Popular</span>
+        <div>
+          <div class="price-tier">Pro SysAdmin License</div>
+          <div class="price-amt">$39 <span>/ one-time</span></div>
+          <p class="price-desc">For Intune Engineers, Desktop Architects &amp; Field Technicians.</p>
+          <ul class="feat-list">
+            <li><strong>&check;</strong> Everything in Free Edition</li>
+            <li><strong>&check;</strong> Full Copy-Paste Remediation Commands</li>
+            <li><strong>&check;</strong> Hex Error Code Root-Cause Mapping</li>
+            <li><strong>&check;</strong> Raw JSON Export for Automation</li>
+            <li><strong>&check;</strong> 30-Day Offline Grace Cache (OOBE ready)</li>
+            <li><strong>&check;</strong> Activate on up to 3 Admin Workstations</li>
+          </ul>
+        </div>
+        <a href="https://autopilotdoctor.lemonsqueezy.com" class="btn btn-primary" style="text-align:center;">Buy Pro License ($39)</a>
+      </div>
+
+      <div class="price-card">
+        <div>
+          <div class="price-tier">MSP &amp; Team Pack</div>
+          <div class="price-amt">$149 <span>/ one-time</span></div>
+          <p class="price-desc">For Managed Service Providers &amp; Enterprise IT Helpdesks.</p>
+          <ul class="feat-list">
+            <li><strong>&check;</strong> Everything in Pro Edition</li>
+            <li><strong>&check;</strong> Up to 15 Technician Activations</li>
+            <li><strong>&check;</strong> Unlimited Client Endpoint Scans</li>
+            <li><strong>&check;</strong> Priority Feature Requests &amp; Updates</li>
+            <li><strong>&check;</strong> Commercial MSP Audit Usage Rights</li>
+          </ul>
+        </div>
+        <a href="https://autopilotdoctor.lemonsqueezy.com" class="btn" style="text-align:center;">Buy MSP License ($149)</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="container">
+    <div class="sec-header">
+      <h2>Frequently Asked Questions</h2>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item">
+        <h4>Does AutopilotDoctor send any tenant or device data to external servers?</h4>
+        <p>Never. All WMI, registry, certificate, and log inspections execute 100% locally in memory. The only outbound connections are direct TCP 443 socket handshakes to Microsoft's public endpoints to verify firewall reachability, plus optional license key validation when activating Pro.</p>
+      </div>
+      <div class="faq-item">
+        <h4>Can I run it during Windows Autopilot OOBE (Shift + F10)?</h4>
+        <p>Yes. Run <code style="font-family:var(--mono)">AutopilotDoctor.exe</code> from a USB drive or network share inside the OOBE Command Prompt. Because Pro licenses cache a 30-day offline token locally, it works even when internet access is restricted or behind a proxy.</p>
+      </div>
+      <div class="faq-item">
+        <h4>Does it modify registry keys or change system settings?</h4>
+        <p>No. AutopilotDoctor is strictly read-only. It never alters registry values, certificates, or MDM enrollments automatically &mdash; it provides exact remediation commands so you stay in full control.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>&copy; 2026 AutopilotDoctor. Independent Enterprise IT Diagnostic Tool. Not affiliated with Microsoft Corporation.</p>
+  </div>
+</footer>
+
+</body>
+</html>

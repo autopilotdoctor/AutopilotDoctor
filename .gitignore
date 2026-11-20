@@ -1,0 +1,8 @@
+﻿output/
+*.json
+*.html
+!docs/index.html
+dist/
+license.json
+*.log
+.vscode/

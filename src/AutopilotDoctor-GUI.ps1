@@ -1,9 +1,10 @@
 <#
 .SYNOPSIS
-    AutopilotDoctor Desktop GUI & Lemon Squeezy Licensing Wrapper
+    AutopilotDoctor Desktop GUI & Gumroad Licensing Wrapper
 .DESCRIPTION
     Provides a modern WPF interface, background non-blocking diagnostic execution,
-    Freemium/Pro feature gating via Lemon Squeezy License API, and one-click HTML report launch.
+    Freemium/Pro/MSP feature gating via Gumroad License API, 30-day offline grace cache,
+    and one-click HTML report launch.
 #>
 
 [CmdletBinding()]
@@ -15,34 +16,34 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
-Add-Type -AssemblyName System.Web
 
 # Build-Release.ps1 populates these Base64 strings when compiling into a single .exe
 $script:EmbeddedCoreBase64 = "__EMBEDDED_CORE_B64__"
 $script:EmbeddedHtmlBase64 = "__EMBEDDED_HTML_B64__"
 
-# Lemon Squeezy Configuration (Update StoreId / ProductId once product is published)
-$script:LicenseApiActivateUrl = "https://api.lemonsqueezy.com/v1/licenses/activate"
-$script:LicenseApiValidateUrl = "https://api.lemonsqueezy.com/v1/licenses/validate"
-$script:CheckoutUrl           = "https://autopilotdoctor.lemonsqueezy.com"
-$script:OfflineGraceDays      = 30
+# Gumroad Store & Licensing Configuration (Populate after creating the Gumroad product)
+$script:GumroadVerifyUrl   = "https://api.gumroad.com/v2/licenses/verify"
+$script:GumroadProductId   = "t7JXjnQWLgkSP74YW1itIA=="
+$script:CheckoutUrl        = "https://autopilotdoctor.gumroad.com/l/qtryi"
+$script:OfflineGraceDays   = 30
 
-$script:AppDataDir  = Join-Path $env:LOCALAPPDATA "AutopilotDoctor"
-$script:LicenseFile = Join-Path $script:AppDataDir "license.json"
-$script:ReportDir   = Join-Path ([Environment]::GetFolderPath("Desktop")) "AutopilotDoctor-Reports"
+$script:AppDataDir     = Join-Path $env:LOCALAPPDATA "AutopilotDoctor"
+$script:LicenseFile    = Join-Path $script:AppDataDir "license.json"
+$script:ReportDir      = Join-Path ([Environment]::GetFolderPath("Desktop")) "AutopilotDoctor-Reports"
+$script:CurrentLicense = $null
 
 if (-not (Test-Path $script:AppDataDir)) {
     New-Item -ItemType Directory -Path $script:AppDataDir -Force | Out-Null
 }
 
-#region Licensing Engine (Lemon Squeezy + Offline Grace Cache)
+#region Licensing Engine (Gumroad License API + 30-Day Offline Grace Cache)
 
 function Get-LicenseStatus {
     if (-not (Test-Path $script:LicenseFile)) {
         return [PSCustomObject]@{
             IsPro        = $false
             LicenseKey   = ""
-            InstanceId   = ""
+            TierName     = "Free"
             StatusText   = "Free Edition (Remediation hints locked)"
             LastVerified = $null
         }
@@ -50,37 +51,58 @@ function Get-LicenseStatus {
 
     try {
         $licData = Get-Content -Path $script:LicenseFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        if (-not $licData.licenseKey -or -not $licData.lastVerifiedUtc) {
-            throw "Invalid license cache"
+        if (-not $licData -or
+            -not $licData.PSObject.Properties['licenseKey'] -or
+            -not $licData.PSObject.Properties['lastVerifiedUtc'] -or
+            [string]::IsNullOrWhiteSpace($licData.licenseKey) -or
+            [string]::IsNullOrWhiteSpace($licData.lastVerifiedUtc)) {
+            throw "Invalid license cache structure"
         }
 
         $lastVerified = [DateTime]::Parse($licData.lastVerifiedUtc).ToUniversalTime()
         $daysSinceCheck = ((Get-Date).ToUniversalTime() - $lastVerified).TotalDays
 
-        # Refresh validation online if > 7 days old, otherwise trust offline grace window
-        if ($daysSinceCheck -gt 7 -and $daysSinceCheck -le $script:OfflineGraceDays) {
+        # Re-verify online if > 7 days old (without incrementing seat usage count)
+        if ($daysSinceCheck -gt 7 -and $daysSinceCheck -le $script:OfflineGraceDays -and $script:GumroadProductId -notmatch '^__GUMROAD_') {
             try {
                 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
                 $body = @{
-                    license_key = $licData.licenseKey
-                    instance_id = $licData.instanceId
+                    product_id           = $script:GumroadProductId
+                    license_key          = $licData.licenseKey
+                    increment_uses_count = "false"
                 }
-                $resp = Invoke-RestMethod -Uri $script:LicenseApiValidateUrl -Method Post -Body $body -TimeoutSec 5 -ErrorAction Stop
-                if ($resp.valid -eq $true) {
+                $resp = Invoke-RestMethod -Uri $script:GumroadVerifyUrl -Method Post -Body $body -TimeoutSec 6 -ErrorAction Stop
+
+                $isSuccess = ($resp.PSObject.Properties['success'] -and $resp.success -eq $true)
+                $isRefunded = $false
+                if ($resp.PSObject.Properties['purchase'] -and $resp.purchase) {
+                    if (($resp.purchase.PSObject.Properties['refunded'] -and $resp.purchase.refunded -eq $true) -or
+                        ($resp.purchase.PSObject.Properties['chargebacked'] -and $resp.purchase.chargebacked -eq $true)) {
+                        $isRefunded = $true
+                    }
+                }
+
+                if ($isSuccess -and -not $isRefunded) {
                     $licData.lastVerifiedUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                     $licData | ConvertTo-Json | Out-File -FilePath $script:LicenseFile -Encoding UTF8 -Force
                 } else {
                     Remove-Item -Path $script:LicenseFile -Force -ErrorAction SilentlyContinue
-                    return [PSCustomObject]@{ IsPro = $false; LicenseKey = ""; InstanceId = ""; StatusText = "License Revoked / Expired"; LastVerified = $null }
+                    return [PSCustomObject]@{
+                        IsPro        = $false
+                        LicenseKey   = ""
+                        TierName     = "Free"
+                        StatusText   = "License Revoked / Refunded"
+                        LastVerified = $null
+                    }
                 }
             } catch {
-                # Offline or firewall blocked: allow within 30-day grace window
+                # Offline or OOBE restricted network: allow within 30-day grace window
             }
         } elseif ($daysSinceCheck -gt $script:OfflineGraceDays) {
             return [PSCustomObject]@{
                 IsPro        = $false
                 LicenseKey   = $licData.licenseKey
-                InstanceId   = $licData.instanceId
+                TierName     = "Free"
                 StatusText   = "Offline Grace Expired (Connect to internet to re-validate)"
                 LastVerified = $licData.lastVerifiedUtc
             }
@@ -88,21 +110,35 @@ function Get-LicenseStatus {
 
         $maskedKey = if ($licData.licenseKey.Length -ge 8) {
             $licData.licenseKey.Substring(0, 4) + "-****-****-" + $licData.licenseKey.Substring($licData.licenseKey.Length - 4)
-        } else { "ACTIVE" }
+        } else {
+            "ACTIVE"
+        }
+
+        $tierLabel = if ($licData.PSObject.Properties['tierName'] -and -not [string]::IsNullOrWhiteSpace($licData.tierName)) {
+            $licData.tierName
+        } else {
+            "PRO"
+        }
 
         return [PSCustomObject]@{
             IsPro        = $true
             LicenseKey   = $licData.licenseKey
-            InstanceId   = $licData.instanceId
-            StatusText   = "PRO Edition Active ($maskedKey)"
+            TierName     = $tierLabel
+            StatusText   = "$tierLabel Edition Active ($maskedKey)"
             LastVerified = $licData.lastVerifiedUtc
         }
     } catch {
-        return [PSCustomObject]@{ IsPro = $false; LicenseKey = ""; InstanceId = ""; StatusText = "Free Edition"; LastVerified = $null }
+        return [PSCustomObject]@{
+            IsPro        = $false
+            LicenseKey   = ""
+            TierName     = "Free"
+            StatusText   = "Free Edition (Remediation hints locked)"
+            LastVerified = $null
+        }
     }
 }
 
-function Invoke-LemonSqueezyActivation {
+function Invoke-LicenseActivation {
     param (
         [string]$KeyInput
     )
@@ -112,36 +148,78 @@ function Invoke-LemonSqueezyActivation {
         return [PSCustomObject]@{ Success = $false; Message = "Please enter a valid license key." }
     }
 
+    if ($script:GumroadProductId -match '^__GUMROAD_') {
+        return [PSCustomObject]@{ Success = $false; Message = "Store Product ID is not configured in this build yet." }
+    }
+
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $body = @{
-            license_key   = $cleanKey
-            instance_name = $env:COMPUTERNAME
+            product_id           = $script:GumroadProductId
+            license_key          = $cleanKey
+            increment_uses_count = "true"
         }
 
-        $response = Invoke-RestMethod -Uri $script:LicenseApiActivateUrl -Method Post -Body $body -TimeoutSec 12 -ErrorAction Stop
+        $response = Invoke-RestMethod -Uri $script:GumroadVerifyUrl -Method Post -Body $body -TimeoutSec 12 -ErrorAction Stop
 
-        if ($response.activated -eq $true) {
+        if ($response.PSObject.Properties['success'] -and $response.success -eq $true) {
+            $isRefunded = $false
+            $variantText = ""
+
+            if ($response.PSObject.Properties['purchase'] -and $response.purchase) {
+                $purchase = $response.purchase
+                if (($purchase.PSObject.Properties['refunded'] -and $purchase.refunded -eq $true) -or
+                    ($purchase.PSObject.Properties['chargebacked'] -and $purchase.chargebacked -eq $true)) {
+                    $isRefunded = $true
+                }
+                if ($purchase.PSObject.Properties['variants'] -and $purchase.variants) {
+                    $variantText = [string]$purchase.variants
+                }
+            }
+
+            if ($isRefunded) {
+                return [PSCustomObject]@{ Success = $false; Message = "This license key has been refunded or revoked." }
+            }
+
+            $isMsp    = $variantText -match "MSP"
+            $maxSeats = if ($isMsp) { 15 } else { 3 }
+            $tierName = if ($isMsp) { "MSP" } else { "PRO" }
+
+            $currentUses = if ($response.PSObject.Properties['uses']) { [int]$response.uses } else { 1 }
+            if ($currentUses -gt $maxSeats) {
+                return [PSCustomObject]@{
+                    Success = $false
+                    Message = "Activation limit reached ($maxSeats workstations max for $tierName license)."
+                }
+            }
+
             $cacheObj = [PSCustomObject]@{
                 licenseKey      = $cleanKey
-                instanceId      = $response.instance.id
+                tierName        = $tierName
+                maxSeats        = $maxSeats
                 lastVerifiedUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             }
             $cacheObj | ConvertTo-Json | Out-File -FilePath $script:LicenseFile -Encoding UTF8 -Force
-            return [PSCustomObject]@{ Success = $true; Message = "AutopilotDoctor Pro activated successfully!" }
+
+            return [PSCustomObject]@{
+                Success = $true
+                Message = "AutopilotDoctor $tierName activated successfully! (Seat $currentUses of $maxSeats)"
+            }
         } else {
-            $errMsg = if ($response.error) { $response.error } else { "Activation rejected by license server." }
+            $errMsg = if ($response.PSObject.Properties['message']) { $response.message } else { "Invalid license key." }
             return [PSCustomObject]@{ Success = $false; Message = $errMsg }
         }
     } catch {
-        $detail = $_.Exception.Message
+        $detail = "Invalid or unrecognized license key."
         if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
             try {
                 $errJson = $_.ErrorDetails.Message | ConvertFrom-Json
-                if ($errJson.error) { $detail = $errJson.error }
+                if ($errJson.PSObject.Properties['message']) { $detail = $errJson.message }
             } catch {}
+        } elseif ($_.Exception.Message -notmatch "404") {
+            $detail = "Network or API error: $($_.Exception.Message)"
         }
-        return [PSCustomObject]@{ Success = $false; Message = "Activation failed: $detail" }
+        return [PSCustomObject]@{ Success = $false; Message = $detail }
     }
 }
 
@@ -251,7 +329,7 @@ function Invoke-LemonSqueezyActivation {
                     </Grid.ColumnDefinitions>
                     <TextBox x:Name="LicenseKeyBox" Grid.Column="0" Height="32" Padding="8,5" Background="#0B0F19" Foreground="#F3F4F6"
                              BorderBrush="#374151" BorderThickness="1" FontFamily="Consolas" FontSize="12" VerticalContentAlignment="Center"
-                             ToolTip="Paste your Lemon Squeezy license key here"/>
+                             ToolTip="Paste your AutopilotDoctor Pro or MSP license key here"/>
                     <Button x:Name="ActivateBtn" Grid.Column="1" Content="Activate Key" Margin="8,0,0,0" Padding="14,5" FontSize="12"/>
                 </Grid>
             </Grid>
@@ -358,12 +436,12 @@ $getProBtn.Add_Click({
 $activateBtn.Add_Click({
     $activateBtn.IsEnabled = $false
     $activateBtn.Content = "Validating..."
-    $res = Invoke-LemonSqueezyActivation -KeyInput $licenseKeyBox.Text
+    $res = Invoke-LicenseActivation -KeyInput $licenseKeyBox.Text
     $activateBtn.IsEnabled = $true
     $activateBtn.Content = "Activate Key"
 
     if ($res.Success) {
-        [System.Windows.MessageBox]::Show($res.Message, "AutopilotDoctor Pro", "OK", "Information") | Out-Null
+        [System.Windows.MessageBox]::Show($res.Message, "AutopilotDoctor License", "OK", "Information") | Out-Null
         Update-LicenseUi
     } else {
         [System.Windows.MessageBox]::Show($res.Message, "License Activation", "OK", "Warning") | Out-Null
@@ -391,7 +469,7 @@ $script:Timer.Add_Tick({
 
         try {
             $result = $script:ActivePowerShell.EndInvoke($script:AsyncHandle)
-            $reportInfo = $result | Select-Object -Last 1
+            $reportInfo = $result | Where-Object { $_ -is [PSCustomObject] -and $_.PSObject.Properties['HtmlPath'] } | Select-Object -Last 1
 
             $statusLogBox.AppendText("`r`n[OK] Scan complete! Health: $($reportInfo.OverallHealth) (Critical: $($reportInfo.Critical), Warning: $($reportInfo.Warning), Pass: $($reportInfo.Pass))")
             $statusLogBox.AppendText("`r`n[OK] Report saved to: $($reportInfo.HtmlPath)")
@@ -459,9 +537,9 @@ $runScanBtn.Add_Click({
 
             # Apply Freemium Feature Gate if Free Edition
             $payloadObj = Get-Content -Path $JsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if (-not $IsProLicensed) {
+            if (-not $IsProLicensed -and $payloadObj.PSObject.Properties['findings']) {
                 foreach ($f in $payloadObj.findings) {
-                    if ($f.remediationHint -and $f.remediationHint -ne "None") {
+                    if ($f.PSObject.Properties['remediationHint'] -and $f.remediationHint -and $f.remediationHint -ne "None") {
                         $f.remediationHint = "[PRO LICENSE REQUIRED] Upgrade to AutopilotDoctor Pro to unlock copy-paste remediation commands & CLI fixes."
                     }
                 }
